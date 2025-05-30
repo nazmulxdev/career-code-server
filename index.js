@@ -1,4 +1,5 @@
 import express, { application } from "express";
+import { createRequire } from "module";
 import cors from "cors";
 import { MongoClient, ObjectId, ServerApiVersion } from "mongodb";
 import "dotenv/config";
@@ -6,6 +7,13 @@ import "dotenv/config";
 import jwt from "jsonwebtoken";
 // jwt middleware
 import cookieParser from "cookie-parser";
+
+// firebase admin
+
+import admin from "firebase-admin";
+
+const require = createRequire(import.meta.url);
+const serviceAccount = require("./FireBase/firebase-admin-sdk.json");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -21,8 +29,18 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-const logger = (req, res, next) => {
-  console.log(`inside the logger user`);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+const fireBaseAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+  const tokenInfo = await admin.auth().verifyIdToken(token);
+  req.fireTokenEmail = tokenInfo.email;
   next();
 };
 
@@ -160,14 +178,20 @@ async function run() {
 
     // application api by email and uid query
 
-    app.get("/application", verifyToken, async (req, res) => {
+    app.get("/application", fireBaseAuth, verifyToken, async (req, res) => {
       const applicantUID = req.query.applicantUID;
       const applicantEmail = req.query.applicantEmail;
 
+      // firebase middleware verification
+
+      if (req.fireTokenEmail !== applicantEmail) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      // JWT middleware verification
       if (applicantEmail !== req.decoded.email) {
         return res.status(403).send({ message: "forbidden access" });
       }
-      // console.log(req.cookies);
+      console.log(req.cookies);
       const query = {
         applicantUID,
         applicantEmail,
